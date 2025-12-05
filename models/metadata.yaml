@@ -1,0 +1,20 @@
+description: Ultralytics YOLO8n_1024 model trained on data.yaml
+author: Ultralytics
+date: '2025-12-05T09:57:29.697578'
+version: 8.3.234
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 32
+task: detect
+batch: 1
+imgsz:
+- 1024
+- 1024
+names:
+  0: varoa
+args:
+  batch: 1
+  half: false
+  int8: false
+  nms: false
+channels: 3
