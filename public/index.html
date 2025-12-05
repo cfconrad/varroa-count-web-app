@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Varroa Detector (TF.js)</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest"></script>
+
+    <style>
+        /* Overlay for bounding boxes */
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 20;
+            pointer-events: none;
+        }
+
+        /* Scanning animation (optional visual flair) */
+        @keyframes scan {
+            0% { top: 0%; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+        .scan-line {
+            position: absolute;
+            width: 100%;
+            height: 4px;
+            background: rgba(239, 68, 68, 0.8); /* Red for Varroa attention */
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.8);
+            animation: scan 2s linear infinite;
+            display: none;
+        }
+        .active .scan-line {
+            display: block;
+        }
+        
+        /* Custom range slider styling */
+        input[type=range] {
+            -webkit-appearance: none; /* Hides the slider so that custom slider can be made */
+            width: 100%; /* Specific width is required for Firefox. */
+            background: transparent; /* Otherwise white in Chrome */
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #ef4444;
+            cursor: pointer;
+            margin-top: -6px; /* You need to specify a margin in Chrome, but in Firefox and IE it is automatic */
+            box-shadow: 0 0 5px rgba(0,0,0,0.5);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #334155;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body class="bg-yellow-500 text-white min-h-screen font-sans selection:bg-red-500 selection:text-white">
+
+    <!-- Navbar -->
+    <nav class="border-b border-yellow-700 bg-yellow-800/50 backdrop-blur-md sticky top-0 z-50">
+        <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-lg flex items-center justify-center font-bold text-white">
+                    VC
+                </div>
+                <h1 class="text-xl font-bold tracking-tight">Varroa<span class="text-red-500">Counter</span></h1>
+            </div>
+            <div id="model-status" class="flex items-center gap-2 text-xs font-medium text-yellow-400 bg-yellow-400/10 px-3 py-1 rounded-full animate-pulse border-yellow-700">
+                <span class="w-2 h-2 rounded-full bg-yellow-400"></span>
+                Loading Model...
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-6xl mx-auto px-4 py-8 grid lg:grid-cols-3 gap-8">
+        
+        <!-- Left Column: Media Feed (Spans 2 cols) -->
+        <div class="lg:col-span-2 space-y-4">
+            <!-- Controls -->
+            <div class="flex flex-col sm:flex-row gap-4 mb-4 bg-yellow-800/50 p-4 rounded-xl border border-yellow-700">
+                <div class="flex gap-2 flex-1">
+                    <button id="enable-cam" class="flex-1 bg-yellow-700 hover:bg-yellow-600 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
+                        </svg>
+                        Webcam
+                    </button>
+                    <label class="flex-1 bg-yellow-700 hover:bg-yellow-600 text-white font-medium py-2 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clip-rule="evenodd" />
+                        </svg>
+                        Upload
+                        <input type="file" id="upload-input" accept="image/*" class="hidden">
+                    </label>
+                </div>
+                
+                <!-- Confidence Slider -->
+                <div class="flex-1 flex flex-col justify-center px-2">
+            <label for="confidence-slider" class="block mb-2.5 text-sm font-medium text-heading">Sensitivity<span style="padding-left: 5px" id="threshold-value"></span></label>
+                    <input type="range" id="confidence-slider" min="1" max="100" value="15" style="background-color: #ebc634"  class="w-full bg-yellow-600 h-2 bg-neutral-quaternary rounded-full appearance-none cursor-pointer">
+                </div>
+            </div>
+
+            <!-- Viewport -->
+            <div class="relative group rounded-2xl overflow-hidden bg-black border-2 border-yellow-700 shadow-2xl aspect-video" id="media-container">
+                
+                <!-- Video Element (Webcam) -->
+                <video id="webcam" class="absolute inset-0 w-full h-full object-contain hidden" playsinline muted></video>
+                
+                <!-- Image Element (Upload) -->
+                <img id="uploaded-image" class="absolute inset-0 w-full h-full object-contain hidden" />
+
+                <!-- Canvas for Bounding Boxes -->
+                <canvas id="overlay"></canvas>
+                
+                <!-- Scanning Effect -->
+                <div id="scan-overlay" class="absolute inset-0 pointer-events-none">
+                    <div class="scan-line"></div>
+                </div>
+
+                <!-- FPS Counter -->
+                <div class="absolute top-4 left-4 bg-black/50 backdrop-blur text-xs font-mono px-2 py-1 rounded border border-white/10 hidden" id="stats-container">
+                    FPS: <span id="fps" class="text-red-400">0</span>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Column: Results & Info -->
+        <div class="flex flex-col h-full space-y-4">
+            <!-- Detection Count -->
+            <div class="bg-yellow-800 rounded-2xl border border-yellow-700 p-6 shadow-lg">
+                <h2 class="text-lg font-semibold text-yellow-200 mb-2">Detections</h2>
+                <div class="flex items-baseline gap-2">
+                    <span id="detection-count" class="text-4xl font-bold text-red-500">0</span>
+                    <span class="text-yellow-400">Varroa found</span>
+                </div>
+            </div>
+
+            <!-- Debug / Log Console -->
+            <div class="bg-yellow-900 rounded-xl border border-yellow-800 p-4 flex-1 overflow-hidden flex flex-col">
+                <h3 class="text-xs font-bold text-yellow-500 uppercase tracking-wider mb-2">System Log</h3>
+                <div id="logs" class="font-mono text-xs text-green-400 overflow-y-auto flex-1 space-y-1 p-2 bg-black/20 rounded">
+                    <div>> System initialized...</div>
+                </div>
+            </div>
+            
+            <!-- Technical Info Box -->
+            <div class="p-4 rounded-xl bg-yellow-800/50 border border-yellow-700/50 text-xs text-yellow-400">
+                <p><strong>Target Class:</strong> ID 1 (Varroa)</p>
+                <p><strong>Mode:</strong> <span id="mode-indicator">Idle</span></p>
+                <p class="mt-2 text-yellow-500 italic">Looking for "models/model.json"</p>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // --- Configuration ---
+        const MODEL_URL = 'models/model.json';
+        const TARGET_CLASS_ID = 1; // "Varroa"
+        let scoreThreshold = 0.15; // Default 15%
+        const MODEL_INPUT_SIZE = 1024; // Used for coordinate normalization if model outputs pixels
+
+        // --- State ---
+        let model = null;
+        let isWebcamActive = false;
+        let lastFrameTime = 0;
+        let animationId = null;
+        let currentImageSource = null; // Track what we are currently analyzing (video or img element)
+
+        // --- DOM Elements ---
+        const video = document.getElementById('webcam');
+        const image = document.getElementById('uploaded-image');
+        const mediaContainer = document.getElementById('media-container'); // Need container for alignment
+        const canvas = document.getElementById('overlay');
+        const ctx = canvas.getContext('2d');
+        const enableWebcamBtn = document.getElementById('enable-cam');
+        const uploadInput = document.getElementById('upload-input');
+        const statusBadge = document.getElementById('model-status');
+        const logContainer = document.getElementById('logs');
+        const scanOverlay = document.getElementById('scan-overlay');
+        const statsContainer = document.getElementById('stats-container');
+        const fpsDisplay = document.getElementById('fps');
+        const countDisplay = document.getElementById('detection-count');
+        const slider = document.getElementById('confidence-slider');
+        const thresholdDisplay = document.getElementById('threshold-value');
+        const modeIndicator = document.getElementById('mode-indicator');
+
+        // --- Logging Helper ---
+        function log(msg, type = 'info') {
+            const div = document.createElement('div');
+            div.textContent = `> ${msg}`;
+            if (type === 'error') div.className = 'text-red-400';
+            if (type === 'warn') div.className = 'text-yellow-400';
+            logContainer.appendChild(div);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            console.log(msg);
+        }
+
+        // --- Initialization ---
+        async function init() {
+            try {
+                await tf.ready();
+                log(`Backend: ${tf.getBackend().toUpperCase()}`);
+
+                log(`Loading model from ${MODEL_URL}...`);
+                
+                // Load Graph Model
+                model = await tf.loadGraphModel(MODEL_URL);
+                
+                // Warm up
+                const dummyInput = tf.zeros([1, 1024, 1024, 3], 'float32');
+                try {
+                    await model.executeAsync(dummyInput);
+                    tf.dispose(dummyInput);
+                } catch(e) {
+                    log('Warmup warning: ' + e.message, 'warn');
+                }
+
+                log('Model Loaded Successfully');
+                statusBadge.className = "flex items-center gap-2 text-xs font-medium text-emerald-700 bg-emerald-400/40 px-3 py-1 rounded-full border-green-700";
+                statusBadge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span>Model Ready`;
+                
+                enableWebcamBtn.disabled = false;
+
+            } catch (error) {
+                log('Error Loading Model: ' + error.message, 'error');
+                log('Ensure "models/model.json" exists and is served via HTTP/HTTPS (not file://)', 'warn');
+                statusBadge.className = "flex items-center gap-2 text-xs font-medium text-red-400 bg-red-400/10 px-3 py-1 rounded-full";
+                statusBadge.innerHTML = "Model Error";
+            }
+        }
+
+        // --- Helper: Calculate Object-Fit Alignment ---
+        // This ensures boxes line up even if image has black bars due to object-fit: contain
+        function getRenderDimensions(sourceWidth, sourceHeight, containerWidth, containerHeight) {
+            const sourceAspect = sourceWidth / sourceHeight;
+            const containerAspect = containerWidth / containerHeight;
+            
+            let renderWidth, renderHeight, offsetX, offsetY;
+
+            if (sourceAspect > containerAspect) {
+                // Source is wider than container (fits width-wise)
+                renderWidth = containerWidth;
+                renderHeight = containerWidth / sourceAspect;
+                offsetX = 0;
+                offsetY = (containerHeight - renderHeight) / 2;
+            } else {
+                // Source is taller than container (fits height-wise)
+                renderHeight = containerHeight;
+                renderWidth = containerHeight * sourceAspect;
+                offsetY = 0;
+                offsetX = (containerWidth - renderWidth) / 2;
+            }
+            return { renderWidth, renderHeight, offsetX, offsetY };
+        }
+
+        // --- Inference Engine ---
+        // Core function that takes a tensor and returns parsed boxes/scores
+        async function runInference(inputTensor) {
+            let res = null;
+            let boxes = [];
+            let scores = [];
+
+            try {
+                res = await model.executeAsync(inputTensor);
+            } catch (error) {
+                log('Execution error: ' + error.message, 'error');
+                return { boxes: [], scores: [] };
+            }
+
+            // Check for YOLO specific shape [1, 5, 21504]
+            if (res.shape.length === 3 && res.shape[1] === 5) {
+                // YOLO Logic
+                const transposed = res.transpose([0, 2, 1]);
+                const data = transposed.dataSync(); 
+                transposed.dispose();
+                res.dispose(); 
+
+                const numAnchors = data.length / 5;
+                const candidateBoxes = [];
+                const candidateScores = [];
+
+                for (let i = 0; i < numAnchors; i++) {
+                    const offset = i * 5;
+                    const score = data[offset + 4]; 
+
+                    if (score > scoreThreshold) {
+                        const cx = data[offset];     
+                        const cy = data[offset + 1]; 
+                        const w = data[offset + 2];  
+                        const h = data[offset + 3];  
+
+                        const y1 = (cy - h / 2) / MODEL_INPUT_SIZE;
+                        const x1 = (cx - w / 2) / MODEL_INPUT_SIZE;
+                        const y2 = (cy + h / 2) / MODEL_INPUT_SIZE;
+                        const x2 = (cx + w / 2) / MODEL_INPUT_SIZE;
+
+                        candidateBoxes.push([y1, x1, y2, x2]);
+                        candidateScores.push(score);
+                    }
+                }
+
+                if (candidateBoxes.length > 0) {
+                    const boxTensor = tf.tensor2d(candidateBoxes);
+                    const scoreTensor = tf.tensor1d(candidateScores);
+                    
+                    const nmsIndices = await tf.image.nonMaxSuppressionAsync(boxTensor, scoreTensor, 20, 0.5, scoreThreshold);
+                    const indices = nmsIndices.dataSync();
+                    
+                    indices.forEach(idx => {
+                        // Flatten here for consistency with other branches
+                        const b = candidateBoxes[idx];
+                        boxes.push(b[0], b[1], b[2], b[3]); 
+                        scores.push(candidateScores[idx]);
+                    });
+
+                    boxTensor.dispose();
+                    scoreTensor.dispose();
+                    nmsIndices.dispose();
+                }
+
+            } else if (Array.isArray(res)) {
+                // Standard TFOD
+                const boxesTensor = res.find(t => t.shape.length === 3 && t.shape[2] === 4);
+                const scoresTensor = res.find(t => t.shape.length === 2 && t !== boxesTensor && t.dtype === 'float32');
+                
+                let rawBoxes = boxesTensor ? boxesTensor.dataSync() : res[0].dataSync();
+                let rawScores = scoresTensor ? scoresTensor.dataSync() : res[1].dataSync();
+
+                res.forEach(t => t.dispose());
+                
+                for(let i=0; i<rawScores.length; i++) {
+                    if(rawScores[i] > scoreThreshold) {
+                        const base = i * 4;
+                        boxes.push(rawBoxes[base], rawBoxes[base+1], rawBoxes[base+2], rawBoxes[base+3]);
+                        scores.push(rawScores[i]);
+                    }
+                }
+
+            } else if (res && typeof res === 'object' && !res.dataSync) {
+                // Dictionary
+                const keys = Object.keys(res);
+                const findKey = (term) => keys.find(k => k.toLowerCase().includes(term));
+                
+                const boxKey = findKey('box');
+                const scoreKey = findKey('score');
+
+                if (boxKey && scoreKey) {
+                    const rawBoxes = res[boxKey].dataSync();
+                    const rawScores = res[scoreKey].dataSync();
+
+                    for(let i=0; i<rawScores.length; i++) {
+                        if(rawScores[i] > scoreThreshold) {
+                            const base = i * 4;
+                            boxes.push(rawBoxes[base], rawBoxes[base+1], rawBoxes[base+2], rawBoxes[base+3]);
+                            scores.push(rawScores[i]);
+                        }
+                    }
+                }
+                Object.values(res).forEach(t => t.dispose());
+            } else {
+                if(res && res.dispose) res.dispose();
+            }
+
+            return { boxes, scores };
+        }
+
+        // --- Main Detection Loop ---
+        async function detectFrame(sourceElement) {
+            if (!model) return;
+            currentImageSource = sourceElement; 
+
+            // Get Dimensions
+            const imgWidth = sourceElement.videoWidth || sourceElement.naturalWidth;
+            const imgHeight = sourceElement.videoHeight || sourceElement.naturalHeight;
+            const containerWidth = mediaContainer.clientWidth;
+            const containerHeight = mediaContainer.clientHeight;
+
+            if (!imgWidth || !imgHeight) return;
+
+            // Resize Canvas to Container
+            canvas.width = containerWidth;
+            canvas.height = containerHeight;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Calculate Alignment
+            const layout = getRenderDimensions(imgWidth, imgHeight, containerWidth, containerHeight);
+
+            let globalBoxes = [];
+            let globalScores = [];
+
+            // --- TILING LOGIC START ---
+            // Only tile if not webcam (static image) and dimensions exceed input size
+            if (!isWebcamActive && (imgWidth > MODEL_INPUT_SIZE || imgHeight > MODEL_INPUT_SIZE)) {
+                
+                // Create an offscreen canvas for slicing
+                const tileCanvas = document.createElement('canvas');
+                tileCanvas.width = MODEL_INPUT_SIZE;
+                tileCanvas.height = MODEL_INPUT_SIZE;
+                const tileCtx = tileCanvas.getContext('2d');
+
+                // Step size (non-overlapping usually preferred for simple grid, 
+                // but we make sure to cover the edges by shifting back)
+                const step = MODEL_INPUT_SIZE; 
+
+                for (let y = 0; y < imgHeight; y += step) {
+                    let tileY = y;
+                    // If tile goes out of bounds, shift back to fit exactly at the edge
+                    if (tileY + MODEL_INPUT_SIZE > imgHeight) {
+                        tileY = Math.max(0, imgHeight - MODEL_INPUT_SIZE);
+                    }
+
+                    for (let x = 0; x < imgWidth; x += step) {
+                        let tileX = x;
+                        if (tileX + MODEL_INPUT_SIZE > imgWidth) {
+                            tileX = Math.max(0, imgWidth - MODEL_INPUT_SIZE);
+                        }
+
+                        // Draw slice to temp canvas
+                        tileCtx.clearRect(0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE);
+                        tileCtx.drawImage(
+                            sourceElement, 
+                            tileX, tileY, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE, // Source Slice
+                            0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE          // Dest Canvas
+                        );
+
+                        // Process this tile
+                        const inputTensor = tf.tidy(() => {
+                            return tf.browser.fromPixels(tileCanvas)
+                                .expandDims(0)
+                                .div(255.0);
+                        });
+
+                        const tileResults = await runInference(inputTensor);
+                        inputTensor.dispose();
+
+                        // Map Tile Coordinates -> Global Coordinates
+                        const tBoxes = tileResults.boxes;
+                        const tScores = tileResults.scores;
+
+                        for(let i=0; i<tScores.length; i++) {
+                            const base = i * 4;
+                            // Box normalized 0-1 relative to 1024x1024 tile
+                            const b0 = tBoxes[base];   // y1
+                            const b1 = tBoxes[base+1]; // x1
+                            const b2 = tBoxes[base+2]; // y2
+                            const b3 = tBoxes[base+3]; // x2
+
+                            // Convert to absolute pixels in Tile
+                            // Then add Tile Offset
+                            // Then divide by Total Image Size to get Global Normalized
+                            
+                            const g_y1 = (b0 * MODEL_INPUT_SIZE + tileY) / imgHeight;
+                            const g_x1 = (b1 * MODEL_INPUT_SIZE + tileX) / imgWidth;
+                            const g_y2 = (b2 * MODEL_INPUT_SIZE + tileY) / imgHeight;
+                            const g_x2 = (b3 * MODEL_INPUT_SIZE + tileX) / imgWidth;
+
+                            globalBoxes.push(g_y1, g_x1, g_y2, g_x2);
+                            globalScores.push(tScores[i]);
+                        }
+
+                        // Break loop if we just processed the shifted-back edge tile
+                        if (tileX + MODEL_INPUT_SIZE >= imgWidth) break;
+                    }
+                    if (tileY + MODEL_INPUT_SIZE >= imgHeight) break;
+                }
+
+            } else {
+                // --- STANDARD SINGLE PASS LOGIC ---
+                const inputTensor = tf.tidy(() => {
+                    const img = tf.browser.fromPixels(sourceElement);
+                    const expanded = img.expandDims(0);
+                    const resized = tf.image.resizeBilinear(expanded, [MODEL_INPUT_SIZE, MODEL_INPUT_SIZE]);
+                    return resized.div(255.0); 
+                });
+
+                const results = await runInference(inputTensor);
+                inputTensor.dispose();
+                
+                globalBoxes = results.boxes;
+                globalScores = results.scores;
+            }
+            // --- TILING LOGIC END ---
+
+            // 4. Draw Final Results
+            let detectionCount = 0;
+            const count = globalScores.length; 
+            
+            for (let i = 0; i < count; i++) {
+                const score = globalScores[i];
+                
+                if (score >= scoreThreshold) {
+                    detectionCount++;
+                    
+                    const boxIndex = i * 4;
+                    if (globalBoxes[boxIndex] === undefined) continue;
+
+                    // Normalized Coordinates [y1, x1, y2, x2] (0-1)
+                    const y1_n = globalBoxes[boxIndex];
+                    const x1_n = globalBoxes[boxIndex + 1];
+                    const y2_n = globalBoxes[boxIndex + 2];
+                    const x2_n = globalBoxes[boxIndex + 3];
+
+                    // Convert to Rendered Screen Coordinates
+                    const y_min = layout.offsetY + (y1_n * layout.renderHeight);
+                    const x_min = layout.offsetX + (x1_n * layout.renderWidth);
+                    const y_max = layout.offsetY + (y2_n * layout.renderHeight);
+                    const x_max = layout.offsetX + (x2_n * layout.renderWidth);
+                    
+                    const width = x_max - x_min;
+                    const height = y_max - y_min;
+
+                    // Draw Box
+                    ctx.strokeStyle = '#EF4444'; // Red-500
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(x_min, y_min, width, height);
+
+                    // Draw Simple Label (Score only)
+                    ctx.fillStyle = '#EF4444';
+                    ctx.fillRect(x_min, y_min - 22, 50, 22); // Small tag for score
+                    
+                    ctx.fillStyle = '#FFFFFF';
+                    ctx.font = 'bold 14px sans-serif';
+                    ctx.fillText(`${Math.round(score * 100)}%`, x_min + 5, y_min - 6);
+                }
+            }
+            countDisplay.innerText = detectionCount;
+        }
+
+        // --- Loop for Webcam ---
+        async function webcamLoop() {
+            if (!isWebcamActive) return;
+
+            const now = performance.now();
+            const delta = now - lastFrameTime;
+            lastFrameTime = now;
+            if (delta > 0) {
+                fpsDisplay.innerText = Math.round(1000 / delta);
+            }
+
+            await detectFrame(video);
+            animationId = requestAnimationFrame(webcamLoop);
+        }
+
+        // --- Event Handlers ---
+
+        // Slider Change
+        slider.addEventListener('input', (e) => {
+            // Update value
+            scoreThreshold = parseInt(e.target.value) / 100;
+            thresholdDisplay.innerText = `${e.target.value}%`;
+            
+            // If we are looking at an image (static), re-run detection immediately
+            if (!isWebcamActive && currentImageSource) {
+                detectFrame(currentImageSource);
+            }
+        });
+
+        // Enable Webcam
+        enableWebcamBtn.addEventListener('click', async () => {
+            if (!model) return;
+            
+            video.classList.remove('hidden');
+            image.classList.add('hidden');
+            statsContainer.classList.remove('hidden');
+            scanOverlay.classList.add('active');
+            modeIndicator.innerText = "Webcam Live";
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment' },
+                    audio: false
+                });
+                video.srcObject = stream;
+                
+                video.onloadeddata = () => {
+                    isWebcamActive = true;
+                    video.play();
+                    webcamLoop();
+                    log('Webcam started');
+                };
+            } catch (err) {
+                log('Webcam denied: ' + err.message, 'error');
+            }
+        });
+
+        // Upload Image
+        uploadInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            isWebcamActive = false;
+            if (animationId) cancelAnimationFrame(animationId);
+            video.srcObject = null;
+            
+            video.classList.add('hidden');
+            image.classList.remove('hidden');
+            statsContainer.classList.add('hidden');
+            scanOverlay.classList.remove('active');
+            modeIndicator.innerText = "Static Image";
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                image.src = event.target.result;
+                image.onload = () => {
+                    log('Image loaded.');
+                    detectFrame(image);
+                };
+            };
+            reader.readAsDataURL(file);
+        });
+        
+        // Window Resize Handler (Fixes alignment if window changes)
+        window.addEventListener('resize', () => {
+            if(!isWebcamActive && currentImageSource) {
+                detectFrame(currentImageSource);
+            }
+        });
+
+        // Initialize
+        init();
+
+    </script>
+</body>
+</html>
