@@ -1,0 +1,14 @@
+# data.yaml content
+
+# Path to the root of your dataset
+path: /home/clemix/sandbox/hw25/yolo/dataset_1/
+
+# Training and Validation image directories
+train: images/train
+val: images/val
+
+# Number of classes
+nc: 1  # <- CHANGE THIS to your actual number of classes
+
+# Class names (must be in the order they appear in your label files)
+names: ['varroa'] # <- CHANGE THIS to your actual class names
