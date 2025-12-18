@@ -1,12 +1,29 @@
 # varroa-count-web-app
 
-**THIS IS A PROTOTYPE**
+Created in [SUSE Hackweek 25](https://hackweek.opensuse.org/25/projects/varoa-mites-counter)
 
-created during [Hackweek 25](https://hackweek.opensuse.org/25/projects/varoa-mites-counter)
-
-
-# Development
+# Train the YOLO model
 ```
-yarn dev
+cd training
+python3.11 -m venv venv
+. venv/bin/activate
+pip install ultralytics
+./train_model.py
+```
+to test the model with our examples run:
+```
+./predict.py ../examples/*
+eog output/*
+```
+
+# Web Development
+```
+yarn add -D vite # only needed the first time
+npx vite
+```
+
+# Web Deploy
+```
+npx vite build
 ```
 
