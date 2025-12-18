@@ -45,6 +45,8 @@ export class ZoomImage {
   private ctx: CanvasRenderingContext2D;
   private boxes: Array<Box>;
   private scale: number;
+  private scale_min: number;
+  private scale_max: number;
   private panX: number;
   private panY: number;
   private image: HTMLImageElement;
@@ -60,10 +62,11 @@ export class ZoomImage {
     this.ctx = ctx;
     this.image = image;
 
-    this.scale = 1;
-    this.panX = 0;
-    this.panY = 0;
-
+    this.scale = 1.0;
+    this.panX = 0.0;
+    this.panY = 0.0;
+    this.scale_max = 2.0;
+    this.scale_min = 0.1;
   }
 
   /**
@@ -71,6 +74,7 @@ export class ZoomImage {
      */
   initPosition() {
     this.scale = Math.min(this.canvas.width / this.image.width, this.canvas.height / this.image.height);
+    this.scale_min = this.scale;
     this.panX = (this.canvas.width - this.image.width * this.scale) / 2;
     this.panY = (this.canvas.height - this.image.height * this.scale) / 2;
     this.draw();
@@ -97,10 +101,16 @@ export class ZoomImage {
     const worldY = (centerY - this.panY) / this.scale;
 
     // 2. Apply new scale
-    const newScale = this.scale * factor;
+    let newScale = this.scale * factor;
 
     // Limits
-    if (newScale < 0.1 || newScale > 2) return;
+    if (newScale < this.scale_min) {
+      newScale = this.scale_min;
+    } else if (newScale > this.scale_max) {
+      newScale = this.scale_max;
+    } 
+
+    if (this.scale == newScale) return;
 
     // 3. Recalculate Pan to keep World Point fixed
     this.panX = centerX - worldX * newScale;
