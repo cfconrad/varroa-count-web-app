@@ -7,14 +7,19 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 <nav class="border-b border-yellow-700 bg-yellow-800/50 backdrop-blur-md sticky top-0 z-50">
   <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
     <div class="flex items-center gap-3">
-      <div class="w-8 h-8 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-lg flex items-center justify-center font-bold text-white">
-        VC
+      <div class="w-8 h-8 bg-gradient-to-br from-yellow-500 to-orange-500 rounded-lg flex justify-center" >
+        <img src="/images/varroa-count.svg" class="invert brightness-200" />
       </div>
       <h1 class="text-xl font-bold tracking-tight">Varroa<span class="text-red-500">Counter</span></h1>
     </div>
     <div id="model-status" class="flex items-center gap-2 text-xs font-medium text-yellow-400 bg-yellow-400/10 px-3 py-1 rounded-full animate-pulse border-yellow-700">
       <span class="w-2 h-2 rounded-full bg-yellow-400"></span>
       Loading Model...
+    </div>
+    <div id="model-status" class="flex items-center gap-2 font-medium text-black">
+      <a href="https://github.com/cfconrad/varroa-count-web-app" target="_blank" rel="noopener" title="See the Github Repo" class="md-social__link">
+        <img src="/images/github.svg"/>
+      </a>
     </div>
   </div>
 </nav>
@@ -144,10 +149,6 @@ function log(msg: string, type = 'info') {
   logContainer.appendChild(div);
   logContainer.scrollTop = logContainer.scrollHeight;
   console.log(msg);
-}
-
-class ErrorWithMessage {
-  public message: string = "";
 }
 
 // --- Initialization ---
@@ -479,9 +480,7 @@ zoomInButton?.addEventListener('click', () => {
     const factor = Math.exp(zoomIntensity);
     const x = canvas.clientWidth / 2;
     const y = canvas.clientHeight / 2;
-    if (zoom_image) {
-        zoom_image.updateScale(factor, x, y);
-    }
+    zoom_image?.updateScale(factor, x, y);
 });
 
 zoomOutButton?.addEventListener('click', () => {
@@ -540,7 +539,6 @@ canvas.addEventListener('touchstart', (e) => {
 
 canvas.addEventListener('touchmove', (e) => {
     e.preventDefault();
-
     if (e.touches.length === 1 && isDragging) {
         // Pan Update
         const dx = e.touches[0].clientX - startX;
@@ -554,13 +552,11 @@ canvas.addEventListener('touchmove', (e) => {
     } else if (e.touches.length === 2) {
         // Pinch Update
         const currentDist = getDist(e.touches[0], e.touches[1]);
-        
         if (initialPinchDist) {
             const factor = currentDist / initialPinchDist;
             const center = getCenter(e.touches[0], e.touches[1]);
             const rect = canvas.getBoundingClientRect();
-            
-            if(zoom_image) zoom_image.updateScale(factor, center.x - rect.left, center.y - rect.top);
+            zoom_image?.updateScale(factor, center.x - rect.left, center.y - rect.top);
             
             // Reset for next incremental move
             initialPinchDist = currentDist;
