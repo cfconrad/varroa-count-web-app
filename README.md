@@ -10,10 +10,16 @@ python3.11 -m venv venv
 pip install ultralytics
 ./train_model.py
 ```
-to test the model with our examples run:
+test the model with our examples run:
 ```
 ./predict.py ../examples/*
 eog output/*
+```
+convert model for tensorflow-js
+```
+MODEL="runs/detect/yolov8_custom_training/weights/best.pt"
+
+yolo export model="$MODEL" format=tfjs opset=12
 ```
 
 # Web Development
