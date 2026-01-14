@@ -99,6 +99,16 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 
    </main>
 </div>
+<div id="loading-modal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center hidden">
+  <div class="bg-yellow-900 border border-yellow-700 rounded-xl p-8 shadow-2xl w-full max-w-sm text-center">
+    <h3 class="text-xl font-bold text-yellow-200 mb-4">Loading Model</h3>
+    <p class="text-yellow-400 mb-6">Please wait while the detection model is being downloaded and prepared.</p>
+    <div class="w-full bg-black/20 rounded-full h-2.5 border border-yellow-800">
+      <div id="loading-progress-bar" class="bg-yellow-500 h-2 rounded-full" style="width: 0%"></div>
+    </div>
+    <div class="mt-2 text-xs font-mono text-yellow-500" id="loading-progress-text">0%</div>
+  </div>
+</div>
 `;
 
 // --- Configuration ---
@@ -137,6 +147,9 @@ const thresholdDisplay = document.getElementById('threshold-value');
 const zoomInButton = document.getElementById('zoom-in-button');
 const zoomOutButton = document.getElementById('zoom-out-button');
 const loading_spinner = document.getElementById('loading-spinner');
+const loadingModal = document.getElementById('loading-modal');
+const loadingProgressBar = document.getElementById('loading-progress-bar');
+const loadingProgressText = document.getElementById('loading-progress-text');
 
 // --- Logging Helper ---
 function log(msg: string, type = 'info') {
@@ -167,9 +180,18 @@ async function init() {
 
     log(`Loading model from ${model_spec.url}...`);
 
+    if (loadingModal) loadingModal.classList.remove('hidden');
 
     // Load Graph Model
-    model = await tf.loadGraphModel(model_spec.url);
+    model = await tf.loadGraphModel(model_spec.url, {
+      onProgress: (fraction) => {
+        const percent = Math.round(fraction * 100);
+        if (loadingProgressBar) loadingProgressBar.style.width = `${percent}%`;
+        if (loadingProgressText) loadingProgressText.innerText = `${percent}%`;
+      }
+    });
+
+    if (loadingModal) loadingModal.classList.add('hidden');
 
     // Warm up
     const dummyInput = tf.zeros([1, 1024, 1024, 3], 'float32');
@@ -189,6 +211,7 @@ async function init() {
   } catch (error) {
     log('Error Loading Model: ' + error.message, 'error');
     log('Ensure "models/model.json" exists and is served via HTTP/HTTPS (not file://)', 'warn');
+    if (loadingModal) loadingModal.classList.add('hidden');
 
     if (statusBadge) {
       statusBadge.className = "flex items-center gap-2 text-xs font-medium text-red-400 bg-red-400/10 px-3 py-1 rounded-full";
